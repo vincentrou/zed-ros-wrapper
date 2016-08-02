@@ -43,6 +43,7 @@
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/image_encodings.h>
 #include <image_transport/image_transport.h>
+#include <camera_info_manager/camera_info_manager.h>
 #include <dynamic_reconfigure/server.h>
 #include <zed_wrapper/ZedConfig.h>
 
@@ -64,8 +65,8 @@ int confidence;
 
 // Function to publish left and depth/right images
 
-void publishImages(cv::Mat left, cv::Mat second, image_transport::Publisher &pub_left, image_transport::Publisher &pub_second,
-        string left_frame_id, string second_frame_id, ros::Time t) {
+void publishImages(cv::Mat left, cv::Mat second, image_transport::CameraPublisher &pub_left, image_transport::CameraPublisher &pub_second,
+        string left_frame_id, string second_frame_id, ros::Time t, sensor_msgs::CameraInfoPtr left_cam_info_msg, sensor_msgs::CameraInfoPtr second_cam_info_msg) {
 
     // Publish left image
     cv_bridge::CvImage left_im;
@@ -73,7 +74,7 @@ void publishImages(cv::Mat left, cv::Mat second, image_transport::Publisher &pub
     left_im.encoding = sensor_msgs::image_encodings::BGR8;
     left_im.header.frame_id = left_frame_id;
     left_im.header.stamp = t;
-    pub_left.publish(left_im.toImageMsg());
+    pub_left.publish(left_im.toImageMsg(), left_cam_info_msg);
 
     // Publish second image
     cv_bridge::CvImage second_im;
@@ -81,7 +82,7 @@ void publishImages(cv::Mat left, cv::Mat second, image_transport::Publisher &pub
     second_im.encoding = (computeDepth) ? sensor_msgs::image_encodings::TYPE_16UC1 : sensor_msgs::image_encodings::BGR8;
     second_im.header.frame_id = second_frame_id;
     second_im.header.stamp = t;
-    pub_second.publish(second_im.toImageMsg());
+    pub_second.publish(second_im.toImageMsg(), second_cam_info_msg);
 
 }
 
@@ -195,8 +196,11 @@ int main(int argc, char **argv) {
     ros::init(argc, argv, "zed_depth_stereo_wrapper_node");
     ROS_INFO("ZED_WRAPPER Node initialized");
 
-    ros::NodeHandle nh;
+    ros::NodeHandle nh, nh_left("left"), nh_right("right");
     ros::NodeHandle nh_ns("~");
+
+    camera_info_manager::CameraInfoManager cinfo_left(nh_left);
+    camera_info_manager::CameraInfoManager cinfo_second(nh_right);
 
     // Get parameters from launch file
     nh_ns.getParam("resolution", resolution);
@@ -257,10 +261,14 @@ int main(int argc, char **argv) {
     image_transport::ImageTransport it_zed(nh);
 
     // Image publishers
-    image_transport::Publisher pub_left = it_zed.advertise(left_topic, 1);
+    image_transport::CameraPublisher pub_left = it_zed.advertiseCamera(left_topic, 1);
     ROS_INFO_STREAM("Advertized on topic " << left_topic);
-    image_transport::Publisher pub_second = it_zed.advertise(second_topic, 1);
+    image_transport::CameraPublisher pub_second = it_zed.advertiseCamera(second_topic, 1);
     ROS_INFO_STREAM("Advertized on topic " << second_topic);
+
+    uint id = zed->getZEDSerial();
+    cinfo_left.setCameraName(std::to_string(id)+"left");
+    cinfo_second.setCameraName(std::to_string(id)+"right");
 
     // Camera info publishers
     ros::Publisher pub_left_cam_info = nh.advertise<sensor_msgs::CameraInfo>(left_cam_info_topic, 1);
@@ -269,8 +277,8 @@ int main(int argc, char **argv) {
     ROS_INFO_STREAM("Advertized on topic " << second_cam_info_topic);
 
     // Camera info messages
-    sensor_msgs::CameraInfoPtr left_cam_info_msg(new sensor_msgs::CameraInfo());
-    sensor_msgs::CameraInfoPtr second_cam_info_msg(new sensor_msgs::CameraInfo());
+    sensor_msgs::CameraInfoPtr left_cam_info_msg(new sensor_msgs::CameraInfo(cinfo_left.getCameraInfo()));
+    sensor_msgs::CameraInfoPtr second_cam_info_msg(new sensor_msgs::CameraInfo(cinfo_second.getCameraInfo()));
 
     fillCamInfo(zed, left_cam_info_msg, second_cam_info_msg, left_frame_id, second_frame_id);
 
@@ -336,9 +344,9 @@ int main(int argc, char **argv) {
                     // Convert to RGB
                     cv::cvtColor(secondImRaw, secondIm, CV_RGBA2RGB);
                 }
-                publishCamInfo(left_cam_info_msg, second_cam_info_msg, pub_left_cam_info, pub_second_cam_info, t);
+                //publishCamInfo(left_cam_info_msg, second_cam_info_msg, pub_left_cam_info, pub_second_cam_info, t);
                 ROS_DEBUG_STREAM("Camera info published");
-                publishImages(leftImRGB, secondIm, pub_left, pub_second, left_frame_id, second_frame_id, t);
+                publishImages(leftImRGB, secondIm, pub_left, pub_second, left_frame_id, second_frame_id, t, left_cam_info_msg, second_cam_info_msg);
                 ROS_DEBUG_STREAM("Images published");
 
                 ros::spinOnce();

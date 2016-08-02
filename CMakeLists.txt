@@ -40,6 +40,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   cv_bridge
   dynamic_reconfigure
+  camera_info_manager
 )
 
 generate_dynamic_reconfigure_options(
@@ -55,6 +56,7 @@ catkin_package(
     cv_bridge
     image_transport
     dynamic_reconfigure
+    camera_info_manager
 )
 
 ###############################################################################
